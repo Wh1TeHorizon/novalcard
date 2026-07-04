@@ -611,7 +611,10 @@ function gbase(){
   return b.replace(/\/v1beta$/,"").replace(/\/v1$/,"");
 }
 function gheaders(){ return { "Content-Type":"application/json", "x-goog-api-key":els.apiKey.value.trim() }; }
+// 夹取 max_tokens：填得过大（如几百万）某些接口会直接返回空/报错，这里限到合理上限
+function clampTok(n){ n=parseInt(n)||1500; if(n<256) n=256; if(n>200000) n=200000; return n; }
 function toGemini(messages,maxTokens){
+  maxTokens=clampTok(maxTokens);
   let sys=null; const contents=[];
   for(const m of messages){
     if(m.role==="system"){ sys=(sys?sys+"\n":"")+m.content; continue; }
@@ -666,7 +669,7 @@ async function chat(messages, {maxTokens=1500, signal}={}){
       model:els.model.value.trim(),
       messages,
       temperature:parseFloat(els.temp.value)||0.4,
-      max_tokens:maxTokens
+      max_tokens:clampTok(maxTokens)
     })
   });
   if(!res.ok){
@@ -696,12 +699,20 @@ const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 let runController=null;
 function runSignal(){ runController=new AbortController(); return runController.signal; }
 function stopRun(){ if(runController) runController.abort(); }
-// 连接超时：ms 内没拿到响应就自动中止，避免接口静默卡死导致界面永远卡在"处理中"。
-// 只守到"响应头返回"为止，之后的流式正文可以慢慢传、不受影响。
-async function fetchWithTimeout(url, opts, ms=90000){
-  const t=setTimeout(()=>{ try{ runController && runController.abort(); }catch(e){} }, ms);
-  try{ return await fetch(url, opts); }
-  finally{ clearTimeout(t); }
+// 连接超时：ms 内没拿到响应就中止「这一个请求」（不牵连整轮任务），并抛出可重试的超时错误。
+async function fetchWithTimeout(url, opts, ms=180000){
+  const outer=opts&&opts.signal;              // 整轮任务的停止信号（用户点停止）
+  const tc=new AbortController();
+  const onOuter=()=>tc.abort();
+  if(outer){ if(outer.aborted) tc.abort(); else outer.addEventListener("abort",onOuter,{once:true}); }
+  let timedOut=false;
+  const t=setTimeout(()=>{ timedOut=true; tc.abort(); }, ms);
+  try{
+    return await fetch(url, Object.assign({}, opts, {signal:tc.signal}));
+  }catch(e){
+    if(timedOut) throw new Error("请求超时（"+(ms/1000)+"s 未响应），可重试或换更快的模型/中转");
+    throw e;   // 用户主动停止 → AbortError，照常向上抛
+  }finally{ clearTimeout(t); if(outer) outer.removeEventListener("abort",onOuter); }
 }
 // 所有会发请求的按钮：同一时刻只允许一个在跑，其余禁用，避免并发抢占 runController 导致卡死
 const ASYNC_BTNS=["scanBtn","genBtn","contBtn","reviseBtn","wbBtn","wbBgBtn","wbMinorBtn","wbPlotBtn","wbCharListBtn","wbPlotListBtn","wbContBtn","wbReviseBtn","styleBtn","checkRunBtn"];
@@ -728,7 +739,7 @@ async function retry(fn,{tries=3,onWait}={}){
       last=e;
       if(isAbort(e)) throw e;                                   // 用户中止：不重试
       const httpm=/HTTP (429|5\d\d)/.exec(e.message||"");
-      const neterr = e.name==="TypeError" || /failed to fetch|load failed|network\s*error/i.test(e.message||"");
+      const neterr = e.name==="TypeError" || /failed to fetch|load failed|network\s*error|请求超时|timeout/i.test(e.message||"");
       if((!httpm && !neterr) || i===tries-1) throw e;           // 非可重试错误 / 已到上限
       const code = httpm? httpm[1] : "网络";
       const wait=2000*(i+1);
@@ -1098,7 +1109,7 @@ async function chatStream(messages,{maxTokens=4000,onDelta,signal}={}){
     body:JSON.stringify({
       model:els.model.value.trim(), messages,
       temperature:parseFloat(els.temp.value)||0.4,
-      max_tokens:maxTokens, stream:true
+      max_tokens:clampTok(maxTokens), stream:true
     })
   });
   if(!res.ok){ let t=""; try{t=await res.text();}catch(e){} throw new Error("HTTP "+res.status+" "+t.slice(0,300)); }
