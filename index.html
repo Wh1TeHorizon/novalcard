@@ -100,7 +100,7 @@
 <body>
 <div class="wrap">
   <header>
-    <h1>角色卡提取工具 <span style="font-size:13px;font-weight:500;color:var(--gold);vertical-align:2px">v5.7.2</span></h1>
+    <h1>角色卡提取工具 <span style="font-size:13px;font-weight:500;color:var(--gold);vertical-align:2px">v5.7.3</span></h1>
     <div class="sub">导入小说 · 扫描角色 · 按模板抽取角色卡</div>
     <div class="rule"></div>
   </header>
@@ -149,6 +149,7 @@
         <div class="field"><label>相关段落上下文上限（字符）</label><input type="number" id="ctxCap" value="90000" step="10000" min="10000"></div>
         <div class="field"><label>全文模式上下文上限（字符）</label><input type="number" id="fullCap" value="120000" step="10000" min="10000"></div>
       </div>
+      <label class="toggle" style="margin-top:8px"><input type="checkbox" id="showThink"> 显示思考过程（流式时保留思考型模型的 &lt;think&gt; 内容，方便调试 / 看是否卡住）</label>
     </details>
     <details class="adv">
       <summary>自定义提示词（进阶）</summary>
@@ -855,6 +856,8 @@ function stripThink(s){
   if(ci>=0) s=s.slice(ci+"</think>".length);
   return s.trim();
 }
+// 流式显示用：勾了「显示思考过程」就原样显示（含 <think>），否则剥掉
+function dispThink(s){ const el=$("showThink"); return (el&&el.checked)? String(s) : stripThink(s); }
 // 抗造地从模型回复里抠出 JSON 数组：先剥思考/代码块，再解析，失败就截取第一个 [ 到最后一个 ]
 function extractJsonArray(s){
   if(s==null) return null;
@@ -1343,7 +1346,7 @@ $("contBtn").onclick=async()=>{
   const messages=[{role:"system",content:withSys(sys)},{role:"user",content:user}];
   const onWait=(n,code,w)=>logTo("genLog","续写 HTTP "+code+"，重试("+n+")","e");
   const base=cur.replace(/\s+$/,"");
-  const render=f=>{ $("output").value=base+"\n"+stripThink(f); $("output").scrollTop=$("output").scrollHeight; };
+  const render=f=>{ $("output").value=base+"\n"+dispThink(f); $("output").scrollTop=$("output").scrollHeight; };
 
   try{
     const raw=await generate(messages,{maxTokens:maxT,useStream,signal,onText:render,onWait,maxCont,logEl:"genLog",label:"续写"});
@@ -1407,7 +1410,7 @@ $("reviseBtn").onclick=async()=>{
       if(cards.length>1) $("reviseMsg").innerHTML='<span class="spinner"></span>修改 '+(i+1)+"/"+cards.length+(c.name?(" · "+c.name):"");
       const render=f=>{
         const base=done.join("\n\n\n");
-        $("output").value=(base?base+"\n\n\n":"")+c.header+stripThink(f);
+        $("output").value=(base?base+"\n\n\n":"")+c.header+dispThink(f);
         $("output").scrollTop=$("output").scrollHeight;
       };
       let newBody;
@@ -1635,7 +1638,7 @@ $("wbReviseBtn").onclick=async()=>{
     "请据此修改，输出修改后的【完整】世界书条目，不要额外解释、不要代码块。\n\n"+WB_FMT;
   const messages=[{role:"system",content:sys},{role:"user",content:user}];
   const onWait=(n,code,w)=>flash($("wbReviseMsg"),"HTTP "+code+"，重试("+n+")",true);
-  const render=f=>{ $("wbOut").value=stripThink(f); $("wbOut").scrollTop=$("wbOut").scrollHeight; };
+  const render=f=>{ $("wbOut").value=dispThink(f); $("wbOut").scrollTop=$("wbOut").scrollHeight; };
   try{
     const raw=await generate(messages,{maxTokens:maxT,useStream,signal,onText:render,onWait,maxCont,logEl:"wbLog",label:"世界书修改"});
     const txt=stripFence(stripThink(raw)).trim();
@@ -1668,7 +1671,7 @@ $("wbContBtn").onclick=async()=>{
   const messages=[{role:"system",content:sys},{role:"user",content:user}];
   const onWait=(n,code,w)=>flash($("wbMsg"),"HTTP "+code+"，重试("+n+")",true);
   const base=cur.replace(/\s+$/,"");
-  const render=f=>{ $("wbOut").value=base+"\n\n"+stripThink(f); $("wbOut").scrollTop=$("wbOut").scrollHeight; };
+  const render=f=>{ $("wbOut").value=base+"\n\n"+dispThink(f); $("wbOut").scrollTop=$("wbOut").scrollHeight; };
   try{
     const raw=await generate(messages,{maxTokens:maxT,useStream,signal,onText:render,onWait,maxCont,logEl:"wbLog",label:"世界书续写"});
     const full=base+"\n\n"+stripFence(stripThink(raw)).trim();
@@ -1753,7 +1756,7 @@ async function wbMinorCore(signal){
         "从配角里挑最重要的，**最多 "+cap+" 个**。每个配角一条，写清身份、性格、地位、与主角及彼此的关系，有戏份的尽量详细。\n"+
         "只依据原文、不编造。输出 JSON 数组 [{\"name\":\"配角名\",\"keys\":[\"触发关键词2~4个\"],\"content\":\"介绍\"}]，只输出 JSON，不要代码块、不要解释。\n\n"+
         "角色清单：\n"+list+"\n\n=== 小说节选 ===\n"+sample;
-      const raw=await generate(userMsgs(prompt),{maxTokens:Math.max(maxT,12000),useStream:$("stream").checked,signal,onText:f=>{$("wbOut").value=stripThink(f);},onWait,maxCont:$("autoCont").checked?5:0,logEl:"wbLog",label:"逐个配角"});
+      const raw=await generate(userMsgs(prompt),{maxTokens:Math.max(maxT,12000),useStream:$("stream").checked,signal,onText:f=>{$("wbOut").value=dispThink(f);},onWait,maxCont:$("autoCont").checked?5:0,logEl:"wbLog",label:"逐个配角"});
       const arr=extractJsonArray(stripFence(stripThink(raw)));
       if(!Array.isArray(arr)||!arr.length){ flash($("wbMsg"),"没解析出配角条目",true); return; }
       let n=0;
@@ -1777,7 +1780,7 @@ async function wbMinorCore(signal){
         "写法分层：真正跑龙套、出场极少的，可以一两句带过；**其余有戏份的配角，每人至少 100 字**，写清身份、性格、地位、与主角及彼此的关系——他们是这个世界里活生生的人，不是工具人，别糊弄。\n"+
         "只依据原文、不编造，原文没写的就不写。用「· 名字：介绍」的形式，直接输出正文，不要解释、不要代码块。\n\n"+
         "角色清单：\n"+list+"\n\n=== 小说节选 ===\n"+sample;
-      const raw=await generate(userMsgs(prompt),{maxTokens:maxT,useStream:$("stream").checked,signal,onText:f=>{$("wbOut").value=stripThink(f);},onWait,maxCont:$("autoCont").checked?5:0,logEl:"wbLog",label:"配角群像"});
+      const raw=await generate(userMsgs(prompt),{maxTokens:maxT,useStream:$("stream").checked,signal,onText:f=>{$("wbOut").value=dispThink(f);},onWait,maxCont:$("autoCont").checked?5:0,logEl:"wbLog",label:"配角群像"});
       const content=stripFence(stripThink(raw)).trim();
       if(!content){ flash($("wbMsg"),"没归纳出内容",true); return; }
       let keys=[]; characters.forEach(c=>{ keys.push(c.name); (c.aliases||[]).forEach(a=>keys.push(a)); });
@@ -1809,7 +1812,7 @@ async function wbConstantEntry(signal, kind){
     prompt="下面是小说节选。请生成一份**剧情大纲**，作为始终注入的常驻设定：按时间顺序概述主线走向与关键转折（几段即可），让 AI 始终了解故事全貌。只依据原文、不编造。直接输出大纲正文，不要解释、不要代码块。\n\n=== 小说节选 ===\n"+sample;
   }
   try{
-    const raw=await generate(userMsgs(prompt),{maxTokens:maxT,useStream:$("stream").checked,signal,onText:f=>{$("wbOut").value=stripThink(f);},onWait,maxCont:$("autoCont").checked?5:0,logEl:"wbLog",label:title});
+    const raw=await generate(userMsgs(prompt),{maxTokens:maxT,useStream:$("stream").checked,signal,onText:f=>{$("wbOut").value=dispThink(f);},onWait,maxCont:$("autoCont").checked?5:0,logEl:"wbLog",label:title});
     const content=stripFence(stripThink(raw)).trim();
     if(!content){ logTo("wbLog",title+"：没生成内容","e"); return; }
     const entry={ category:"总纲", title, keys:[], content, constant:true };  // 蓝灯常驻
@@ -1887,7 +1890,7 @@ async function wbBgCore(signal){
     "浓缩成一段适合做「常驻世界书条目」的背景大纲，让 AI 始终了解故事发生的大框架，从而角色卡里不必重复这些共同信息。\n"+
     "只依据原文，简洁准确，不编造。直接输出这段背景大纲正文，不要标题、不要解释、不要代码块。\n\n=== 小说节选 ===\n"+sample;
   const onWait=(n,code,w)=>flash($("wbMsg"),"HTTP "+code+"，重试("+n+")",true);
-  const raw=await generate(userMsgs(prompt),{maxTokens:maxT,useStream:$("stream").checked,signal,onText:f=>{$("wbOut").value=stripThink(f);},onWait,maxCont:$("autoCont").checked?5:0,logEl:"wbLog",label:"共享背景"});
+  const raw=await generate(userMsgs(prompt),{maxTokens:maxT,useStream:$("stream").checked,signal,onText:f=>{$("wbOut").value=dispThink(f);},onWait,maxCont:$("autoCont").checked?5:0,logEl:"wbLog",label:"共享背景"});
   const content=stripFence(stripThink(raw)).trim();
   if(!content){ logTo("wbLog","共享背景：没提取到内容","e"); return; }
   const entry={ category:"共享背景", title:"共享背景 / 世界大纲", keys:[], content, constant:true };
@@ -2196,7 +2199,7 @@ $("checkRunBtn").onclick=async()=>{
         "不要额外解释，不要用代码块包裹。";
       const messages=[{role:"system",content:withSys(sys)},{role:"user",content:user}];
       const header="========== "+it.label+" ==========\n";
-      const render=f=>{ $("checkOut").value=results.join("\n\n\n")+(results.length?"\n\n\n":"")+header+stripThink(f); $("checkOut").scrollTop=$("checkOut").scrollHeight; };
+      const render=f=>{ $("checkOut").value=results.join("\n\n\n")+(results.length?"\n\n\n":"")+header+dispThink(f); $("checkOut").scrollTop=$("checkOut").scrollHeight; };
       let raw="";
       try{ raw=await generate(messages,{maxTokens:maxT,useStream,signal,onText:render,onWait,maxCont,logEl:"checkLog",label:it.label}); }
       catch(err){ if(isAbort(err,signal)){ logTo("checkLog","已停止","e"); break; } throw err; }
@@ -2262,7 +2265,7 @@ $("styleBtn").onclick=async()=>{
     "=== 小说节选 ===\n"+sample;
   const messages=[{role:"system",content:withSys(sys)},{role:"user",content:user}];
   const onWait=(n,code,w)=>logTo("styleLog","HTTP "+code+"，"+(w/1000)+"s 后重试("+n+")","e");
-  const render=f=>{ $("styleOut").value=stripThink(f); $("styleOut").scrollTop=$("styleOut").scrollHeight; };
+  const render=f=>{ $("styleOut").value=dispThink(f); $("styleOut").scrollTop=$("styleOut").scrollHeight; };
 
   try{
     $("styleMsg").innerHTML='<span class="spinner"></span>分析中…';
