@@ -128,10 +128,6 @@
       <label>Base URL（OpenAI 填到 /v1；Gemini 原生填到端口即可，如 http://127.0.0.1:2156）</label>
       <input type="text" id="baseUrl" class="mono" placeholder="http://127.0.0.1:2156" autocomplete="off">
     </div>
-    <div class="field">
-      <label>CORS 代理地址（接口无跨域头时填，可为不同配置设不同代理；留空直连）</label>
-      <input type="text" id="corsProxy" class="mono" placeholder="https://your-proxy.workers.dev" autocomplete="off">
-    </div>
     <div class="row">
       <div class="field">
         <label>API Key</label>
@@ -487,7 +483,7 @@ const store = (()=>{
 })();
 
 const $ = id => document.getElementById(id);
-const els = ["baseUrl","apiKey","model","temp","maxTok","chunkSize","scanCap","ctxCap","fullCap","nsfw","fullCtx","apiFormat","sysPrefix","detail","corsProxy"].reduce((o,id)=>(o[id]=$(id),o),{});
+const els = ["baseUrl","apiKey","model","temp","maxTok","chunkSize","scanCap","ctxCap","fullCap","nsfw","fullCtx","apiFormat","sysPrefix","detail"].reduce((o,id)=>(o[id]=$(id),o),{});
 const fmt = ()=> els.apiFormat.value;
 
 // ---------- JSON 持久化小工具 ----------
@@ -495,8 +491,8 @@ function loadJSON(key,def){ try{ const v=store.get(key); return v? JSON.parse(v)
 function saveJSON(key,val){ store.set(key, JSON.stringify(val)); }
 
 // ---------- API 配置（多套，可切换） ----------
-const PROFILE_FIELDS=["apiFormat","baseUrl","apiKey","model","temp","maxTok","chunkSize","scanCap","ctxCap","fullCap","corsProxy"];
-function blankProfile(name){ return {name, apiFormat:"openai", baseUrl:"", apiKey:"", model:"", temp:"0.4", maxTok:"4000", chunkSize:"40000", scanCap:"40", ctxCap:"90000", fullCap:"120000", corsProxy:""}; }
+const PROFILE_FIELDS=["apiFormat","baseUrl","apiKey","model","temp","maxTok","chunkSize","scanCap","ctxCap","fullCap"];
+function blankProfile(name){ return {name, apiFormat:"openai", baseUrl:"", apiKey:"", model:"", temp:"0.4", maxTok:"4000", chunkSize:"40000", scanCap:"40", ctxCap:"90000", fullCap:"120000"}; }
 let apiProfiles = loadJSON("cc_api_profiles", null);
 if(!Array.isArray(apiProfiles) || !apiProfiles.length){
   // 首次：尽量沿用旧的单套设置
@@ -608,13 +604,6 @@ function decodeBest(buf){
   });
 })();
 
-// ---------- CORS 代理 ----------
-function proxyURL(url){
-  const p=apiProfiles[curApiIdx]; if(!p||!p.corsProxy) return url;
-  const px=p.corsProxy.trim().replace(/\/+$/,"");
-  return px+"?url="+encodeURIComponent(url);
-}
-
 // ---------- 接口封装 ----------
 function endpoint(){
   let b=els.baseUrl.value.trim().replace(/\/+$/,"");
@@ -655,7 +644,7 @@ function gemErr(cand,data){
 }
 async function geminiChat(messages,{maxTokens,signal}){
   const url=gbase()+"/v1beta/models/"+encodeURIComponent(els.model.value.trim())+":generateContent";
-  const res=await fetchWithTimeout(proxyURL(url),{ method:"POST",signal,headers:gheaders(),body:JSON.stringify(toGemini(messages,maxTokens)) });
+  const res=await fetchWithTimeout(url,{ method:"POST",signal,headers:gheaders(),body:JSON.stringify(toGemini(messages,maxTokens)) });
   if(!res.ok){ let t=""; try{t=await res.text();}catch(e){} throw new Error("HTTP "+res.status+" "+t.slice(0,300)); }
   const data=await res.json();
   const cand=data?.candidates?.[0];
@@ -666,7 +655,7 @@ async function geminiChat(messages,{maxTokens,signal}){
 }
 async function geminiStream(messages,{maxTokens,onDelta,signal}){
   const url=gbase()+"/v1beta/models/"+encodeURIComponent(els.model.value.trim())+":streamGenerateContent?alt=sse";
-  const res=await fetchWithTimeout(proxyURL(url),{ method:"POST",signal,headers:gheaders(),body:JSON.stringify(toGemini(messages,maxTokens)) });
+  const res=await fetchWithTimeout(url,{ method:"POST",signal,headers:gheaders(),body:JSON.stringify(toGemini(messages,maxTokens)) });
   if(!res.ok){ let t=""; try{t=await res.text();}catch(e){} throw new Error("HTTP "+res.status+" "+t.slice(0,300)); }
   if(!res.body) throw new Error("该接口不支持流式读取");
   const reader=res.body.getReader(), dec=new TextDecoder();
@@ -687,7 +676,7 @@ async function geminiStream(messages,{maxTokens,onDelta,signal}){
 
 async function chat(messages, {maxTokens=1500, signal}={}){
   if(fmt()==="gemini") return geminiChat(messages,{maxTokens,signal});
-  const res=await fetchWithTimeout(proxyURL(endpoint()),{
+  const res=await fetchWithTimeout(endpoint(),{
     method:"POST",signal,
     headers:{ "Content-Type":"application/json", "Authorization":"Bearer "+els.apiKey.value.trim() },
     body:JSON.stringify({
@@ -822,12 +811,12 @@ $("fetchModels").onclick=async()=>{
   try{
     let ids;
     if(fmt()==="gemini"){
-      const res=await fetch(proxyURL(gbase()+"/v1beta/models"), { headers:{ "x-goog-api-key":els.apiKey.value.trim() } });
+      const res=await fetch(gbase()+"/v1beta/models", { headers:{ "x-goog-api-key":els.apiKey.value.trim() } });
       if(!res.ok){ let t=""; try{t=await res.text();}catch(e){} throw new Error("HTTP "+res.status+" "+t.slice(0,200)); }
       const data=await res.json();
       ids=(data.models||[]).map(m=>(m.name||"").replace(/^models\//,"")).filter(Boolean);
     }else{
-      const res=await fetch(proxyURL(modelsEndpoint()),{ headers:{ "Authorization":"Bearer "+els.apiKey.value.trim() } });
+      const res=await fetch(modelsEndpoint(),{ headers:{ "Authorization":"Bearer "+els.apiKey.value.trim() } });
       if(!res.ok){ let t=""; try{t=await res.text();}catch(e){} throw new Error("HTTP "+res.status+" "+t.slice(0,200)); }
       const data=await res.json();
       let list = Array.isArray(data) ? data : (data.data || data.models || []);
@@ -1157,7 +1146,7 @@ function collectContext(name, extra){
 // ---------- 流式请求 ----------
 async function chatStream(messages,{maxTokens=4000,onDelta,signal}={}){
   if(fmt()==="gemini") return geminiStream(messages,{maxTokens,onDelta,signal});
-  const res=await fetchWithTimeout(proxyURL(endpoint()),{
+  const res=await fetchWithTimeout(endpoint(),{
     method:"POST",signal,
     headers:{ "Content-Type":"application/json", "Authorization":"Bearer "+els.apiKey.value.trim() },
     body:JSON.stringify({
